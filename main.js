@@ -18,6 +18,8 @@ Rules :
  - Always Try To Give Some Real World Examples After The Definition Or Summary
 `
 
+const start = Date.now();
+
 const response = await ollama.chat({
     model: 'qwen3.5:4b',
     messages: [{
@@ -31,7 +33,17 @@ const response = await ollama.chat({
     stream: true
 })
 // console.log(response.message.content)
+console.log("Request started:", Date.now() - start, "ms");
+
+let firstToken = true;
 
 for await (const part of response) {
+
+    if (firstToken) {
+        console.log("\nFirst token:", Date.now() - start, "ms");
+        firstToken = false;
+    }
     process.stdout.write(part.message.content)
 }
+
+console.log("\nTotal:", Date.now() - start, "ms");
