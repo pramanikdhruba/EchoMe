@@ -1,5 +1,13 @@
 import ollama from "ollama";
+import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
+import fs from "fs";
+import { exec } from "child_process";
+import path from "path";
+import 'dotenv/config'
 
+const elevenlabs = new ElevenLabsClient({
+    apiKey: process.env.ELEVENLABS_API_KEY, 
+});
 
 const SYSTEM_PROMPT = `
 I am Dhruba Pramanik, MATH And Computer Teacher, Complete BCA , And I have Good Knowledge in 
@@ -15,7 +23,7 @@ Rules :
  - Follow This Json Structure : {
     "TOPIC": "Topic Name",
     "DEFINITION": "Brief and Easy To Understand Definition",
-    "SUMMARY": "Short Summary of the Topic And Key Points",
+    "SUMMARY": "Short Summary of the Topic will be in Hinglish And Key Points : 1. 2. 3.",
     "EXAMPLES": ["Example 1", "Example 2"]
  }
  - The "Definition" value must start with "Haaji". e.g., Haaji Class, Today We Are Going To Disscuss UDP Protocol.
@@ -59,7 +67,6 @@ function extractJson(rawResult) {
     return match ? match[0] : cleaned;
 }
 
-
 const response = await ollama.chat({
     // model: 'qwen3.5:4b',
     model: 'gemma4:31b-cloud',
@@ -69,7 +76,7 @@ const response = await ollama.chat({
     },
     {
         role: 'user', 
-        content: 'What is Binary Search Tree ?' 
+        content: 'What is Calculus ?' 
     }],
     stream: true,
     // stream: false
@@ -94,6 +101,7 @@ for await (const part of response) {
 const jsonResult = extractJson(rawResult);
 
 let parsedResult;
+
 try {
     parsedResult = JSON.parse(jsonResult);
 } catch (err) {
@@ -103,4 +111,34 @@ try {
 
 console.log("\n\nParsed Result:", parsedResult);
 
+const finalReponse = parsedResult.DEFINITION + parsedResult.SUMMARY 
+
+const audioResponse = await elevenlabs.textToSpeech.convert(
+    'JBFqnCBsd6RMkjVDRZzb', // voice_id
+    {
+      text:finalReponse,
+      modelId: 'eleven_multilingual_v2',
+      outputFormat: 'mp3_44100_128', // output_format
+    }
+)
+
+// --- Save audio stream to file ---
+const outputPath = path.resolve("./output.mp3");
+const writeStream = fs.createWriteStream(outputPath);
+
+for await (const chunk of audioResponse) {
+    writeStream.write(chunk);
+}
+writeStream.end();
+
+writeStream.on("finish", () => {
+    console.log(`\nAudio saved to ${outputPath}`);
+
+    // --- Auto-play using OS default player (Windows) ---
+    exec(`start "" "${outputPath}"`, (err) => {
+        if (err) console.error("Playback error:", err);
+    });
+
+    console.log("\nTotal:", Date.now() - start, "ms");
+});
 console.log("\nTotal:", Date.now() - start, "ms");
