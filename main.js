@@ -3,6 +3,7 @@ import { ElevenLabsClient, play } from "@elevenlabs/elevenlabs-js";
 import fs from "fs";
 import { exec } from "child_process";
 import path from "path";
+import { z } from "zod";
 import 'dotenv/config'
 
 const elevenlabs = new ElevenLabsClient({
@@ -21,7 +22,8 @@ I don't have knowledge of subjects outside Computer Science and Mathematics. If 
 Rules :
  - Always Follow Json Structure
  
-    Only One Step At A Time 
+    Strictly Follow : Only One Step At A Time
+
     The Pipeline : 
     - "INITIAL" when user gives an input, we will have an initial thought process on why this user is trying to do this.
     - "THINK" this is where we are going to think about how to solve this and then start to breakdown the problem
@@ -30,17 +32,28 @@ Rules :
     - "ANALYSE" again analyse the problem and get onto a solution
     - "OUTPUT" this is where we can end and give the final output to the user.
 
+    And The pipeline will go back to THINK or ANALYSE step, If Needed And If the User Questions is Simple Than Give the Direct OUTPUT. If the User Question is Little Tough Than We will go through the thinking and analysing process to get the final output.
 
     Output Format:
-  { "step": "INITIAL" | "THINK" | "ANALYSE" | "OUTPUT", "text": "<The Actual Text>" }
-   - Final Actual Text will be in This Array Structure : [
-    "TOPIC": "Topic Name",
-    "DEFINITION": "Brief and Easy To Understand Definition",
-    "SUMMARY": "Short Summary of the Topic will be in Hinglish And Key Points : 1. 2. 3.",
-    "EXAMPLES": ["Example 1", "Example 2"]
+    { "step": "INITIAL" | "THINK" | "ANALYSE" | "OUTPUT", "text": "<The Actual Text>" }
+   
 
- - The "Definition" value must start with "Haaji". e.g., Haaji Class, Today We Are Going To Disscuss UDP Protocol.
- - Give Long Definition, Make Sure Students Can Easily Understand The Concept Within Few Sentences.
+   - Final Actual Text will be in This Structure :
+   {
+  "step": "OUTPUT",
+  "text": {
+    "TOPIC": "Network Failure Detection & Shortest Reliable Path",
+    "DEFINITION": "Haaji Class, ...",
+    "SUMMARY": "...",
+    "EXAMPLES": [
+      "Example 1",
+      "Example 2"
+    ]
+  }
+}
+
+ - The "Definition" value start with "Haaji" or Any Other Hindi Greeting. e.g., Haaji Class, Today We Are Going To Disscuss UDP Protocol.
+ - Give Long Definition, Make Sure Students Can Easily Understand The Concept Within Few Sentences.And add some Hindi words to make it more natural and conversational.
  - Give Short Summary Of The Topic
  - Always Try To Give Some Real World Examples After The Definition Or Summary
  - Follow English But Sometime Use Hindi words To Make The Explanation More Conversational And Easy To Understand.
@@ -72,6 +85,22 @@ Hinglish Teaching Style:
 ]
 `
 
+// ── Zod Schemas ─────────────────────────────────────────────────────────
+// Raw shape returned by Ollama — "text" is always a string per the format schema
+const RawStepSchema = z.object({
+    step: z.enum(["INITIAL", "THINK", "ANALYSE", "OUTPUT"]),
+    text: z.union([z.string(), z.record(z.string(), z.any())]),
+});
+
+// Shape "text" must have when step === "OUTPUT" (it arrives as a stringified JSON)
+const OutputTextSchema = z.object({
+    TOPIC: z.string(),
+    DEFINITION: z.string(),
+    SUMMARY: z.string(),
+    EXAMPLES: z.array(z.string()),
+});
+// ─────────────────────────────────────────────────────────────────────────
+
 const start = Date.now();
 
 const MESSAGES_DB = [{ role: 'system', content: SYSTEM_PROMPT }];
@@ -84,7 +113,10 @@ function extractJson(rawResult) {
 
 async function main(prompt = '') {
 
-    MESSAGES_DB.push({ role: 'user', content: prompt });
+    MESSAGES_DB.push({
+        role: 'user',
+        content: `${prompt}\n\n(Reminder: if this question is simple, you may respond directly with step "OUTPUT". Otherwise, start with step "INITIAL" and proceed through the pipeline, looping back to THINK/ANALYSE as many times as genuinely needed.)`
+    });
 
     let iteration = 0;
     const MAX_ITERATIONS = 15;
@@ -111,12 +143,10 @@ async function main(prompt = '') {
                                 "OUTPUT"
                             ]
                         },
-
                         text: {
                             type: "string"
                         }
                     },
-
                     required: [
                         "step",
                         "text"
@@ -132,7 +162,7 @@ async function main(prompt = '') {
             break;
         }
         // console.log(response.message.content)
-        console.log("Request started:", Date.now() - start, "ms");
+        console.log("Request started: ", Date.now() - start, "ms");
 
         let firstToken = true;
 
@@ -141,14 +171,60 @@ async function main(prompt = '') {
         const jsonResult = extractJson(rawResult);
 
         try {
-            parsedResult = JSON.parse(jsonResult);
+            const rawParsed = JSON.parse(jsonResult);
+            const rawCheck = RawStepSchema.safeParse(rawParsed);
+
+            if (!rawCheck.success) {
+                console.error('❌ Zod validation failed (base shape):', rawCheck.error.flatten());
+                MESSAGES_DB.push({
+                    role: 'user',
+                    content: `Your last response did not match the required JSON shape { step, text }. Please retry, strictly following the format.`
+                });
+                continue; // ask the model again instead of crashing the loop
+            }
+
+            parsedResult = rawCheck.data;
+
+            // If it's the final OUTPUT step, "text" should itself be JSON — parse + validate it
+            if (parsedResult.step === 'OUTPUT') {
+                let outputObj;
+            
+                if (typeof parsedResult.text === 'string') {
+                    try {
+                        outputObj = JSON.parse(extractJson(parsedResult.text));
+                    } catch {
+                        console.error('❌ OUTPUT text was not valid JSON:', parsedResult.text);
+                        MESSAGES_DB.push({
+                            role: 'user',
+                            content: `Your OUTPUT text must be valid JSON matching {TOPIC, DEFINITION, SUMMARY, EXAMPLES}. Please retry.`
+                        });
+                        continue;
+                    }
+                } else {
+                    // Model already returned text as a parsed object
+                    outputObj = parsedResult.text;
+                }
+
+                const outputCheck = OutputTextSchema.safeParse(outputObj);
+                if (!outputCheck.success) {
+                    console.error('❌ Zod validation failed (OUTPUT text):', outputCheck.error.flatten());
+                    MESSAGES_DB.push({
+                        role: 'user',
+                        content: `Your OUTPUT text is missing/incorrect fields: ${JSON.stringify(outputCheck.error.issues)}. Please retry.`
+                    });
+                    continue;
+                }
+
+                // Replace text with the validated, structured object
+                parsedResult.text = outputCheck.data;
+            }
 
             MESSAGES_DB.push({
                 role: 'assistant',
                 content: rawResult
             });
 
-            // console.log(`🤖 (${parsedResult.step}) : ${parsedResult.text}`);
+            console.log(`🤖 (${parsedResult.step}) :`, parsedResult.text);
 
             if (parsedResult.step === 'OUTPUT') {
                 break;
@@ -156,7 +232,7 @@ async function main(prompt = '') {
 
             MESSAGES_DB.push({
                 role: 'user',
-                content: `Continue from step ${parsedResult.step}.`
+                content: `Continue from step ${parsedResult.step}. Respond with EXACTLY ONE JSON object for this single step only — do not include other steps.`
             })
         } catch (err) {
             console.error('❌ Failed to parse response:', jsonResult);
@@ -171,7 +247,9 @@ async function main(prompt = '') {
 
     console.log("\n\nParsed Result:", parsedResult);
 
-    // const finalReponse = parsedResult.DEFINITION + parsedResult.SUMMARY
+    console.log("Request End: ", Date.now() - start, "ms");
+
+    // const finalReponse = parsedResult.text.DEFINITION + parsedResult.text.SUMMARY
     // console.log("\n\nFinal Response:", finalReponse);
 
     // const audioResponse = await elevenlabs.textToSpeech.convert(
@@ -205,4 +283,5 @@ async function main(prompt = '') {
     //     // console.log("\nTotal:", Date.now() - start, "ms");
 }
 
-main('What is Data Structure?');
+main('Network Failure Detection & Shortest Reliable Path');
+// main('What is Graph ?');
