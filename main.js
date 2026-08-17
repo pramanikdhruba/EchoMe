@@ -6,7 +6,7 @@ import path from "path";
 import 'dotenv/config'
 
 const elevenlabs = new ElevenLabsClient({
-    apiKey: process.env.ELEVENLABS_API_KEY, 
+    apiKey: process.env.ELEVENLABS_API_KEY,
 });
 
 const SYSTEM_PROMPT = `
@@ -20,12 +20,25 @@ I don't have knowledge of subjects outside Computer Science and Mathematics. If 
 
 Rules :
  - Always Follow Json Structure
- - Follow This Json Structure : {
+ 
+    Only One Step At A Time 
+    The Pipeline : 
+    - "INITIAL" when user gives an input, we will have an initial thought process on why this user is trying to do this.
+    - "THINK" this is where we are going to think about how to solve this and then start to breakdown the problem
+    - "ANALYSE" this is where we will analyse the solution and also verify if the output is correct
+    - "THINK" we can go back to think mode where we now see if any sub problem remains and think 
+    - "ANALYSE" again analyse the problem and get onto a solution
+    - "OUTPUT" this is where we can end and give the final output to the user.
+
+
+    Output Format:
+  { "step": "INITIAL" | "THINK" | "ANALYSE" | "OUTPUT", "text": "<The Actual Text>" }
+   - Final Actual Text will be in This Array Structure : [
     "TOPIC": "Topic Name",
     "DEFINITION": "Brief and Easy To Understand Definition",
     "SUMMARY": "Short Summary of the Topic will be in Hinglish And Key Points : 1. 2. 3.",
     "EXAMPLES": ["Example 1", "Example 2"]
- }
+
  - The "Definition" value must start with "Haaji". e.g., Haaji Class, Today We Are Going To Disscuss UDP Protocol.
  - Give Long Definition, Make Sure Students Can Easily Understand The Concept Within Few Sentences.
  - Give Short Summary Of The Topic
@@ -56,10 +69,12 @@ Hinglish Teaching Style:
     - Use these phrases for fit naturally.
     - Do not overuse them.
     - Keep the explanation primarily in clear English with natural Hinglish expressions.
+]
 `
 
 const start = Date.now();
 
+const MESSAGES_DB = [{ role: 'system', content: SYSTEM_PROMPT }];
 
 function extractJson(rawResult) {
     const cleaned = rawResult.replace(/```json|```/g, '').trim();
@@ -67,78 +82,127 @@ function extractJson(rawResult) {
     return match ? match[0] : cleaned;
 }
 
-const response = await ollama.chat({
-    // model: 'qwen3.5:4b',
-    model: 'gemma4:31b-cloud',
-    messages: [{
-        role: "system",
-        content: SYSTEM_PROMPT
-    },
-    {
-        role: 'user', 
-        content: 'What is Calculus ?' 
-    }],
-    stream: true,
-    // stream: false
-})
-// console.log(response.message.content)
-console.log("Request started:", Date.now() - start, "ms");
+async function main(prompt = '') {
 
-let firstToken = true;
+    MESSAGES_DB.push({ role: 'user', content: prompt });
 
-let rawResult = ""; 
+    let iteration = 0;
+    const MAX_ITERATIONS = 15;
 
-for await (const part of response) {
+    let parsedResult = null;
 
-    if (firstToken) {
-        console.log("\nFirst token:", Date.now() - start, "ms");
-        firstToken = false;
+    while (iteration++ < MAX_ITERATIONS) {
+        let result;
+
+        try {
+            result = await ollama.chat({
+                model: 'gemma4:31b-cloud',
+                messages: MESSAGES_DB,
+                stream: false,
+                format: {
+                    type: "object",
+                    properties: {
+                        step: {
+                            type: "string",
+                            enum: [
+                                "INITIAL",
+                                "THINK",
+                                "ANALYSE",
+                                "OUTPUT"
+                            ]
+                        },
+
+                        text: {
+                            type: "string"
+                        }
+                    },
+
+                    required: [
+                        "step",
+                        "text"
+                    ]
+                }
+            }
+            )
+        } catch (apiErr) {
+            console.error('❌ API call failed:');
+            console.error('status:', apiErr.status);
+            console.error('message:', apiErr.message);
+            console.error('full error:', JSON.stringify(apiErr, null, 2));
+            break;
+        }
+        // console.log(response.message.content)
+        console.log("Request started:", Date.now() - start, "ms");
+
+        let firstToken = true;
+
+        const rawResult = result.message.content;
+
+        const jsonResult = extractJson(rawResult);
+
+        try {
+            parsedResult = JSON.parse(jsonResult);
+
+            MESSAGES_DB.push({
+                role: 'assistant',
+                content: rawResult
+            });
+
+            // console.log(`🤖 (${parsedResult.step}) : ${parsedResult.text}`);
+
+            if (parsedResult.step === 'OUTPUT') {
+                break;
+            }
+
+            MESSAGES_DB.push({
+                role: 'user',
+                content: `Continue from step ${parsedResult.step}.`
+            })
+        } catch (err) {
+            console.error('❌ Failed to parse response:', jsonResult);
+            console.error(err);
+        }
+
+        if (iteration >= MAX_ITERATIONS) {
+            console.warn('❌ Maximum iterations reached. Exiting.');
+            break;
+        }
     }
-    process.stdout.write(part.message.content)
-    rawResult += part.message.content;
+
+    console.log("\n\nParsed Result:", parsedResult);
+
+    // const finalReponse = parsedResult.DEFINITION + parsedResult.SUMMARY
+    // console.log("\n\nFinal Response:", finalReponse);
+
+    // const audioResponse = await elevenlabs.textToSpeech.convert(
+    //     'JBFqnCBsd6RMkjVDRZzb', // voice_id
+    //     {
+    //       text:finalReponse,
+    //       modelId: 'eleven_multilingual_v2',
+    //       outputFormat: 'mp3_44100_128', // output_format
+    //     }
+    // )
+
+    //     // --- Save audio stream to file ---
+    //     // const outputPath = path.resolve("./output.mp3");
+    //     // const writeStream = fs.createWriteStream(outputPath);
+
+    //     // for await (const chunk of audioResponse) {
+    //     //     writeStream.write(chunk);
+    //     // }
+    //     // writeStream.end();
+
+    //     // writeStream.on("finish", () => {
+    //     //     console.log(`\nAudio saved to ${outputPath}`);
+
+    //     //     // --- Auto-play using OS default player (Windows) ---
+    //     //     exec(`start "" "${outputPath}"`, (err) => {
+    //     //         if (err) console.error("Playback error:", err);
+    //     //     });
+
+    //     //     console.log("\nTotal:", Date.now() - start, "ms");
+    //     // });
+    //     // console.log("\nTotal:", Date.now() - start, "ms");
 }
 
-const jsonResult = extractJson(rawResult);
-
-let parsedResult;
-
-try {
-    parsedResult = JSON.parse(jsonResult);
-} catch (err) {
-    console.error('❌ Failed to parse response:', rawResult);
-    console.error(err);
-}
-
-console.log("\n\nParsed Result:", parsedResult);
-
-const finalReponse = parsedResult.DEFINITION + parsedResult.SUMMARY 
-
-const audioResponse = await elevenlabs.textToSpeech.convert(
-    'JBFqnCBsd6RMkjVDRZzb', // voice_id
-    {
-      text:finalReponse,
-      modelId: 'eleven_multilingual_v2',
-      outputFormat: 'mp3_44100_128', // output_format
-    }
-)
-
-// --- Save audio stream to file ---
-const outputPath = path.resolve("./output.mp3");
-const writeStream = fs.createWriteStream(outputPath);
-
-for await (const chunk of audioResponse) {
-    writeStream.write(chunk);
-}
-writeStream.end();
-
-writeStream.on("finish", () => {
-    console.log(`\nAudio saved to ${outputPath}`);
-
-    // --- Auto-play using OS default player (Windows) ---
-    exec(`start "" "${outputPath}"`, (err) => {
-        if (err) console.error("Playback error:", err);
-    });
-
-    console.log("\nTotal:", Date.now() - start, "ms");
-});
-console.log("\nTotal:", Date.now() - start, "ms");
+main('What is Data Structure?');
