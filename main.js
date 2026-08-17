@@ -43,7 +43,7 @@ Rules :
   "step": "OUTPUT",
   "text": {
     "TOPIC": "Network Failure Detection & Shortest Reliable Path",
-    "DEFINITION": "Haaji Class, ...",
+    "DEFINITION": "<Greeting Word>, Class, ...",
     "SUMMARY": "...",
     "EXAMPLES": [
       "Example 1",
@@ -52,9 +52,9 @@ Rules :
   }
 }
 
- - The "Definition" value start with "Haaji" or Any Other Hindi Greeting. e.g., Haaji Class, Today We Are Going To Disscuss UDP Protocol.
+ - The "Definition" value start with <Greeting_word> or Any Other Hindi Greeting. e.g., <Greeting_word> Class, Today We Are Going To Disscuss UDP Protocol.
  - Give Long Definition, Make Sure Students Can Easily Understand The Concept Within Few Sentences.And add some Hindi words to make it more natural and conversational.
- - Give Short Summary Of The Topic
+ - Give Short Summary Of The Topic and it will always in Hindi
  - Always Try To Give Some Real World Examples After The Definition Or Summary
  - Follow English But Sometime Use Hindi words To Make The Explanation More Conversational And Easy To Understand.
 
@@ -85,14 +85,12 @@ Hinglish Teaching Style:
 ]
 `
 
-// ── Zod Schemas ─────────────────────────────────────────────────────────
-// Raw shape returned by Ollama — "text" is always a string per the format schema
 const RawStepSchema = z.object({
     step: z.enum(["INITIAL", "THINK", "ANALYSE", "OUTPUT"]),
     text: z.union([z.string(), z.record(z.string(), z.any())]),
 });
 
-// Shape "text" must have when step === "OUTPUT" (it arrives as a stringified JSON)
+
 const OutputTextSchema = z.object({
     TOPIC: z.string(),
     DEFINITION: z.string(),
@@ -163,8 +161,6 @@ async function main(prompt = '') {
         }
         // console.log(response.message.content)
         console.log("Request started: ", Date.now() - start, "ms");
-
-        let firstToken = true;
 
         const rawResult = result.message.content;
 
@@ -249,39 +245,38 @@ async function main(prompt = '') {
 
     console.log("Request End: ", Date.now() - start, "ms");
 
-    // const finalReponse = parsedResult.text.DEFINITION + parsedResult.text.SUMMARY
-    // console.log("\n\nFinal Response:", finalReponse);
+    const finalReponse = parsedResult.text.DEFINITION + parsedResult.text.SUMMARY
+    console.log("\n\nFinal Response:", finalReponse);
 
-    // const audioResponse = await elevenlabs.textToSpeech.convert(
-    //     'JBFqnCBsd6RMkjVDRZzb', // voice_id
-    //     {
-    //       text:finalReponse,
-    //       modelId: 'eleven_multilingual_v2',
-    //       outputFormat: 'mp3_44100_128', // output_format
-    //     }
-    // )
+    const audioResponse = await elevenlabs.textToSpeech.convert(
+        'JBFqnCBsd6RMkjVDRZzb', // voice_id
+        {
+          text:finalReponse,
+          modelId: 'eleven_multilingual_v2',
+          outputFormat: 'mp3_44100_128', // output_format
+        }
+    )
 
-    //     // --- Save audio stream to file ---
-    //     // const outputPath = path.resolve("./output.mp3");
-    //     // const writeStream = fs.createWriteStream(outputPath);
+        // --- Save audio stream to file ---
+        const outputPath = path.resolve("./output.mp3");
+        const writeStream = fs.createWriteStream(outputPath);
 
-    //     // for await (const chunk of audioResponse) {
-    //     //     writeStream.write(chunk);
-    //     // }
-    //     // writeStream.end();
+        for await (const chunk of audioResponse) {
+            writeStream.write(chunk);
+        }
+        writeStream.end();
 
-    //     // writeStream.on("finish", () => {
-    //     //     console.log(`\nAudio saved to ${outputPath}`);
+        writeStream.on("finish", () => {
+            console.log(`\nAudio saved to ${outputPath}`);
 
-    //     //     // --- Auto-play using OS default player (Windows) ---
-    //     //     exec(`start "" "${outputPath}"`, (err) => {
-    //     //         if (err) console.error("Playback error:", err);
-    //     //     });
+            // --- Auto-play using OS default player (Windows) ---
+            exec(`start "" "${outputPath}"`, (err) => {
+                if (err) console.error("Playback error:", err);
+            });
 
-    //     //     console.log("\nTotal:", Date.now() - start, "ms");
-    //     // });
-    //     // console.log("\nTotal:", Date.now() - start, "ms");
+            console.log("\nTotal:", Date.now() - start, "ms");
+        });
+        console.log("\nTotal:", Date.now() - start, "ms");
 }
 
-main('Network Failure Detection & Shortest Reliable Path');
-// main('What is Graph ?');
+main('What is the difference between TCP and UDP protocols?')
