@@ -32,7 +32,7 @@ Rules :
     - "ANALYSE" again analyse the problem and get onto a solution
     - "OUTPUT" this is where we can end and give the final output to the user.
 
-    And The pipeline will go back to THINK or ANALYSE step, If Needed And If the User Questions is Simple Than Give the Direct OUTPUT. If the User Question is Little Tough Than We will go through the thinking and analysing process to get the final output.
+    And The pipeline will go back to THINK or ANALYSE step, If Needed go through the thinking and analysing process to get the final output.
 
     Output Format:
     { "step": "INITIAL" | "THINK" | "ANALYSE" | "OUTPUT", "text": "<The Actual Text>" }
@@ -52,7 +52,7 @@ Rules :
   }
 }
 
- - The "Definition" value start with <Greeting_word> or Any Other Hindi Greeting. e.g., <Greeting_word> Class, Today We Are Going To Disscuss UDP Protocol.
+ - The "Definition" value start with <Greeting_word> or Any Other Hindi Greeting. e.g., <Greeting_word> Class, Today We Are Going To Disscuss UDP Protocol.Definition Have Some mixed of English and Hind Words.
  - Give Long Definition, Make Sure Students Can Easily Understand The Concept Within Few Sentences.And add some Hindi words to make it more natural and conversational.
  - Give Short Summary Of The Topic and it will always in Hindi
  - Always Try To Give Some Real World Examples After The Definition Or Summary
@@ -97,7 +97,6 @@ const OutputTextSchema = z.object({
     SUMMARY: z.string(),
     EXAMPLES: z.array(z.string()),
 });
-// ─────────────────────────────────────────────────────────────────────────
 
 const start = Date.now();
 
@@ -113,7 +112,7 @@ async function main(prompt = '') {
 
     MESSAGES_DB.push({
         role: 'user',
-        content: `${prompt}\n\n(Reminder: if this question is simple, you may respond directly with step "OUTPUT". Otherwise, start with step "INITIAL" and proceed through the pipeline, looping back to THINK/ANALYSE as many times as genuinely needed.)`
+        content: `${prompt}`
     });
 
     let iteration = 0;
@@ -150,8 +149,7 @@ async function main(prompt = '') {
                         "text"
                     ]
                 }
-            }
-            )
+            })
         } catch (apiErr) {
             console.error('❌ API call failed:');
             console.error('status:', apiErr.status);
@@ -241,12 +239,10 @@ async function main(prompt = '') {
         }
     }
 
-    console.log("\n\nParsed Result:", parsedResult);
-
     console.log("Request End: ", Date.now() - start, "ms");
 
-    const finalReponse = parsedResult.text.DEFINITION + parsedResult.text.SUMMARY
-    console.log("\n\nFinal Response:", finalReponse);
+    const finalReponse = parsedResult.text.DEFINITION + parsedResult.text.SUMMARY + parsedResult.text.EXAMPLES.join(" ");
+    // console.log("\n\nFinal Response:", finalReponse);
 
     const audioResponse = await elevenlabs.textToSpeech.convert(
         'JBFqnCBsd6RMkjVDRZzb', // voice_id
@@ -257,7 +253,7 @@ async function main(prompt = '') {
         }
     )
 
-        // --- Save audio stream to file ---
+        // Save audio stream to file 
         const outputPath = path.resolve("./output.mp3");
         const writeStream = fs.createWriteStream(outputPath);
 
@@ -269,7 +265,7 @@ async function main(prompt = '') {
         writeStream.on("finish", () => {
             console.log(`\nAudio saved to ${outputPath}`);
 
-            // --- Auto-play using OS default player (Windows) ---
+            // Auto-play using OS default player (Windows) ---
             exec(`start "" "${outputPath}"`, (err) => {
                 if (err) console.error("Playback error:", err);
             });
