@@ -120,8 +120,9 @@ Add `.env` to `.gitignore` and never commit your API keys.
 ```bash
 node index.js
 ```
+
 Replace `index.js` with your actual entry file if different.
-```
+
 
 ## 📁 Project Structure
 
